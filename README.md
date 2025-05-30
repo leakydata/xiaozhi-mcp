@@ -10,6 +10,12 @@ MCP (Model Context Protocol) is a protocol that allows servers to expose tools t
 
 MCP（模型上下文协议）是一个允许服务器向语言模型暴露可调用工具的协议。这些工具使模型能够与外部系统交互，例如查询数据库、调用API或执行计算。每个工具都由一个唯一的名称标识，并包含描述其模式的元数据。
 
+## Tools | 工具集
+- **conversation_dingtalk**: Send conversation to dingtalk | 将会话内容发送到钉钉群机器人
+- **email_qq**: Send email with qq mail account | 使用QQ邮箱发送邮件
+- **system**: Get server status | 获取服务器状态监控信息包含 CPU、内存、磁盘等使用情况
+- **web_webpilot**: Web search by WebPilot | 通过 WebPilot 实现联网搜索
+
 ## Features | 特性
 
 - 🔌 Bidirectional communication between AI and external tools | AI与外部工具之间的双向通信
