@@ -31,11 +31,17 @@ caller_path="$current_dir"
 # 或者使用完整的脚本路径
 # caller_path="$script_path"
 
+# 获取磁盘使用情况
+disk_usage=$(df -h)
+
 # 构建消息内容
-message="主机: $hostname
-调用者路径: $caller_path
-脚本路径: $script_path
-当前目录: $current_dir"
+message="🖥️ 主机: $hostname
+📍 调用者路径: $caller_path
+📄 脚本路径: $script_path
+📂 当前目录: $current_dir
+
+💾 磁盘使用情况:
+$disk_usage"
 
 # 发送到钉钉
 curl -s "$DINGTALK_WEBHOOK" \
