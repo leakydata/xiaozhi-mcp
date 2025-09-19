@@ -13,7 +13,31 @@ Your SQLite MCP tool has been significantly enhanced to provide comprehensive da
 - `sqlite_get_schema()` - Get complete database schema
 - `sqlite_search_tables()` - Search for tables and columns by name
 
-### 2. **Advanced Data Manipulation**
+### 1.1. **Table Management**
+- `sqlite_create_table()` - Create tables with columns, constraints, and indexes
+- `sqlite_drop_table()` - Drop tables from the database
+- `sqlite_rename_table()` - Rename existing tables
+- `sqlite_alter_table_add_column()` - Add new columns to existing tables
+- `sqlite_alter_table_rename_column()` - Rename columns (SQLite 3.25+)
+- `sqlite_alter_table_drop_column()` - Drop columns (SQLite 3.35+)
+- `sqlite_execute_ddl()` - Execute raw DDL statements (CREATE, DROP, ALTER)
+
+### 2. **Index Management**
+- `sqlite_create_index()` - Create indexes on specified columns
+- `sqlite_drop_index()` - Drop indexes from the database
+- `sqlite_reindex()` - Rebuild indexes for optimization
+
+### 3. **View Management**
+- `sqlite_create_view()` - Create views from SELECT queries
+- `sqlite_drop_view()` - Drop views from the database
+- `sqlite_list_views()` - List all views in the database
+
+### 4. **Trigger Management**
+- `sqlite_create_trigger()` - Create triggers on tables
+- `sqlite_drop_trigger()` - Drop triggers from the database
+- `sqlite_list_triggers()` - List all triggers in the database
+
+### 5. **Advanced Data Manipulation**
 - `sqlite_insert()` - Insert single rows with parameterized queries
 - `sqlite_insert_many()` - Bulk insert multiple rows efficiently
 - `sqlite_update()` - Update rows with WHERE clause support
@@ -21,14 +45,14 @@ Your SQLite MCP tool has been significantly enhanced to provide comprehensive da
 - `sqlite_upsert()` - Insert or update (UPSERT) operations
 - `sqlite_execute_transaction()` - Execute multiple operations atomically
 
-### 3. **Advanced Query Capabilities**
+### 6. **Advanced Query Capabilities**
 - `sqlite_count_rows()` - Count rows with optional WHERE clauses
 - `sqlite_aggregate()` - SUM, AVG, MIN, MAX, COUNT operations
 - `sqlite_join_tables()` - INNER, LEFT, RIGHT, FULL OUTER joins
 - `sqlite_group_by()` - GROUP BY with aggregations and HAVING clauses
 - `sqlite_explain_query()` - Query execution plan analysis
 
-### 4. **Database Operations**
+### 7. **Database Operations**
 - `sqlite_backup()` - Create database backups with timestamps
 - `sqlite_restore()` - Restore from backup with safety checks
 - `sqlite_vacuum()` - Reclaim space and optimize database
@@ -36,19 +60,19 @@ Your SQLite MCP tool has been significantly enhanced to provide comprehensive da
 - `sqlite_optimize_database()` - Run full optimization (ANALYZE + VACUUM)
 - `sqlite_get_database_info()` - Comprehensive database information
 
-### 5. **Import/Export Capabilities**
+### 8. **Import/Export Capabilities**
 - `sqlite_export_to_csv()` - Export table data to CSV files
 - `sqlite_import_from_csv()` - Import data from CSV files
 - `sqlite_export_to_json()` - Export table data to JSON files
 - Support for custom column mapping and WHERE clauses
 
-### 6. **Performance & Monitoring**
+### 9. **Performance & Monitoring**
 - `sqlite_get_table_stats()` - Get table statistics and metadata
 - `sqlite_explain_query()` - Analyze query execution plans
 - `sqlite_validate_database()` - Check database integrity
 - Built-in query optimization and performance monitoring
 
-### 7. **Security Features**
+### 10. **Security Features**
 - SQL injection protection with parameterized queries
 - Query validation to prevent dangerous operations
 - Safe connection management with automatic rollback
@@ -90,6 +114,83 @@ schema = sqlite_describe_table("items")
 
 # Run a query
 results = sqlite_run_sql("SELECT * FROM items WHERE price > 10")
+```
+
+### Table Management
+```python
+# Create a new table with columns and constraints
+columns = [
+    {"name": "id", "type": "INTEGER", "not_null": True},
+    {"name": "name", "type": "TEXT", "not_null": True},
+    {"name": "email", "type": "TEXT", "unique": True},
+    {"name": "age", "type": "INTEGER", "default": 0},
+    {"name": "created_at", "type": "DATETIME", "default": "CURRENT_TIMESTAMP"}
+]
+
+sqlite_create_table("users", columns, primary_key=["id"])
+
+# Add a column to existing table
+sqlite_alter_table_add_column("users", "phone", "TEXT")
+
+# Rename a column (SQLite 3.25+)
+sqlite_alter_table_rename_column("users", "age", "user_age")
+
+# Drop a column (SQLite 3.35+)
+sqlite_alter_table_drop_column("users", "phone")
+
+# Rename a table
+sqlite_rename_table("users", "customers")
+
+# Drop a table
+sqlite_drop_table("customers")
+
+# Execute raw DDL
+sqlite_execute_ddl("CREATE TABLE products (id INTEGER PRIMARY KEY, name TEXT)")
+```
+
+### Index Management
+```python
+# Create an index
+sqlite_create_index("idx_users_email", "users", ["email"], unique=True)
+
+# Create a composite index
+sqlite_create_index("idx_users_name_age", "users", ["name", "age"])
+
+# Drop an index
+sqlite_drop_index("idx_users_email")
+
+# Rebuild all indexes
+sqlite_reindex()
+```
+
+### View Management
+```python
+# Create a view
+sqlite_create_view("active_users", "SELECT * FROM users WHERE created_at > '2024-01-01'")
+
+# List all views
+views = sqlite_list_views()
+
+# Drop a view
+sqlite_drop_view("active_users")
+```
+
+### Trigger Management
+```python
+# Create a trigger
+sqlite_create_trigger(
+    "update_timestamp",
+    "users",
+    "UPDATE",
+    "AFTER",
+    "UPDATE users SET updated_at = CURRENT_TIMESTAMP WHERE id = NEW.id"
+)
+
+# List all triggers
+triggers = sqlite_list_triggers()
+
+# Drop a trigger
+sqlite_drop_trigger("update_timestamp")
 ```
 
 ### Data Manipulation

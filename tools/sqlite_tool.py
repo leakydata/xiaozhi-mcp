@@ -132,6 +132,40 @@ def register_sqlite_tools(mcp, *, db_path: str | None = None) -> None:
             rows = cur.fetchmany(lim)
             return _rows_to_dicts(rows)
 
+    @mcp.tool()
+    def sqlite_execute_ddl(query: str) -> str:
+        """
+        Execute DDL (Data Definition Language) statements like CREATE, DROP, ALTER.
+        Use this for table creation, dropping, and schema modifications.
+        """
+        q = (query or "").strip().rstrip(";")
+        if not q:
+            raise ValueError("Query cannot be empty")
+        
+        # Allow DDL operations but still validate for safety
+        query_lower = q.lower()
+        allowed_ddl = ['create', 'drop', 'alter', 'reindex']
+        
+        if not any(query_lower.startswith(op) for op in allowed_ddl):
+            raise ValueError("Only DDL operations (CREATE, DROP, ALTER, REINDEX) are allowed")
+        
+        # Block dangerous operations
+        dangerous_patterns = [
+            r'\b(attach|detach)\b',
+            r'\b(pragma)\b',
+            r'--',  # SQL comments
+            r'/\*.*?\*/',  # Block comments
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, query_lower, re.IGNORECASE):
+                raise ValueError("Query contains potentially dangerous operations")
+        
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute(q)
+            return f"DDL statement executed successfully: {query_lower.split()[0].upper()}"
+
     # ==================== SCHEMA MANAGEMENT ====================
 
     @mcp.tool()
@@ -679,6 +713,274 @@ def register_sqlite_tools(mcp, *, db_path: str | None = None) -> None:
             cur.execute("VACUUM")
             
             return "Database optimization completed (ANALYZE + VACUUM)"
+
+    # ==================== TABLE MANAGEMENT ====================
+
+    @mcp.tool()
+    def sqlite_create_table(table_name: str, columns: List[Dict[str, Any]], 
+                           primary_key: List[str] = None, foreign_keys: List[Dict[str, Any]] = None,
+                           indexes: List[Dict[str, Any]] = None, if_not_exists: bool = True) -> str:
+        """Create a new table with specified columns, constraints, and indexes."""
+        if not columns:
+            raise ValueError("Columns list cannot be empty")
+        
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            # Build column definitions
+            column_defs = []
+            for col in columns:
+                col_def = f"{col['name']} {col['type']}"
+                
+                # Add constraints
+                if col.get('not_null', False):
+                    col_def += " NOT NULL"
+                if col.get('unique', False):
+                    col_def += " UNIQUE"
+                if col.get('default') is not None:
+                    col_def += f" DEFAULT {col['default']}"
+                if col.get('check'):
+                    col_def += f" CHECK ({col['check']})"
+                
+                column_defs.append(col_def)
+            
+            # Add primary key constraint
+            if primary_key:
+                column_defs.append(f"PRIMARY KEY ({', '.join(primary_key)})")
+            
+            # Add foreign key constraints
+            if foreign_keys:
+                for fk in foreign_keys:
+                    fk_def = f"FOREIGN KEY ({fk['column']}) REFERENCES {fk['ref_table']}({fk['ref_column']})"
+                    if fk.get('on_delete'):
+                        fk_def += f" ON DELETE {fk['on_delete']}"
+                    if fk.get('on_update'):
+                        fk_def += f" ON UPDATE {fk['on_update']}"
+                    column_defs.append(fk_def)
+            
+            # Build CREATE TABLE statement
+            if_exists_clause = "IF NOT EXISTS" if if_not_exists else ""
+            create_sql = f"CREATE TABLE {if_exists_clause} {table_name} ({', '.join(column_defs)})"
+            
+            cur.execute(create_sql)
+            
+            # Create indexes if specified
+            if indexes:
+                for idx in indexes:
+                    idx_name = idx.get('name', f"idx_{table_name}_{'_'.join(idx['columns'])}")
+                    unique = "UNIQUE " if idx.get('unique', False) else ""
+                    idx_sql = f"CREATE {unique}INDEX {idx_name} ON {table_name} ({', '.join(idx['columns'])})"
+                    cur.execute(idx_sql)
+            
+            return f"Table '{table_name}' created successfully"
+
+    @mcp.tool()
+    def sqlite_drop_table(table_name: str, if_exists: bool = True) -> str:
+        """Drop a table from the database."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            if_exists_clause = "IF EXISTS" if if_exists else ""
+            drop_sql = f"DROP TABLE {if_exists_clause} {table_name}"
+            
+            cur.execute(drop_sql)
+            return f"Table '{table_name}' dropped successfully"
+
+    @mcp.tool()
+    def sqlite_alter_table_add_column(table_name: str, column_name: str, column_type: str, 
+                                    not_null: bool = False, default_value: Any = None) -> str:
+        """Add a new column to an existing table."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            col_def = f"{column_name} {column_type}"
+            if not_null:
+                col_def += " NOT NULL"
+            if default_value is not None:
+                col_def += f" DEFAULT {default_value}"
+            
+            alter_sql = f"ALTER TABLE {table_name} ADD COLUMN {col_def}"
+            cur.execute(alter_sql)
+            
+            return f"Column '{column_name}' added to table '{table_name}' successfully"
+
+    @mcp.tool()
+    def sqlite_alter_table_rename_column(table_name: str, old_column_name: str, new_column_name: str) -> str:
+        """Rename a column in an existing table (SQLite 3.25+)."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            # Check SQLite version
+            cur.execute("SELECT sqlite_version()")
+            version = cur.fetchone()[0]
+            major, minor, patch = map(int, version.split('.'))
+            
+            if major < 3 or (major == 3 and minor < 25):
+                raise ValueError(f"Column renaming requires SQLite 3.25+, current version: {version}")
+            
+            alter_sql = f"ALTER TABLE {table_name} RENAME COLUMN {old_column_name} TO {new_column_name}"
+            cur.execute(alter_sql)
+            
+            return f"Column '{old_column_name}' renamed to '{new_column_name}' in table '{table_name}'"
+
+    @mcp.tool()
+    def sqlite_alter_table_drop_column(table_name: str, column_name: str) -> str:
+        """Drop a column from an existing table (SQLite 3.35+)."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            # Check SQLite version
+            cur.execute("SELECT sqlite_version()")
+            version = cur.fetchone()[0]
+            major, minor, patch = map(int, version.split('.'))
+            
+            if major < 3 or (major == 3 and minor < 35):
+                raise ValueError(f"Column dropping requires SQLite 3.35+, current version: {version}")
+            
+            alter_sql = f"ALTER TABLE {table_name} DROP COLUMN {column_name}"
+            cur.execute(alter_sql)
+            
+            return f"Column '{column_name}' dropped from table '{table_name}'"
+
+    @mcp.tool()
+    def sqlite_rename_table(old_table_name: str, new_table_name: str) -> str:
+        """Rename a table."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            rename_sql = f"ALTER TABLE {old_table_name} RENAME TO {new_table_name}"
+            cur.execute(rename_sql)
+            
+            return f"Table '{old_table_name}' renamed to '{new_table_name}'"
+
+    # ==================== INDEX MANAGEMENT ====================
+
+    @mcp.tool()
+    def sqlite_create_index(index_name: str, table_name: str, columns: List[str], 
+                          unique: bool = False, if_not_exists: bool = True) -> str:
+        """Create an index on specified columns."""
+        if not columns:
+            raise ValueError("Columns list cannot be empty")
+        
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            unique_clause = "UNIQUE " if unique else ""
+            if_exists_clause = "IF NOT EXISTS" if if_not_exists else ""
+            
+            create_sql = f"CREATE {unique_clause}INDEX {if_exists_clause} {index_name} ON {table_name} ({', '.join(columns)})"
+            cur.execute(create_sql)
+            
+            return f"Index '{index_name}' created successfully on table '{table_name}'"
+
+    @mcp.tool()
+    def sqlite_drop_index(index_name: str, if_exists: bool = True) -> str:
+        """Drop an index."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            if_exists_clause = "IF EXISTS" if if_exists else ""
+            drop_sql = f"DROP INDEX {if_exists_clause} {index_name}"
+            
+            cur.execute(drop_sql)
+            return f"Index '{index_name}' dropped successfully"
+
+    @mcp.tool()
+    def sqlite_reindex(index_name: str = None) -> str:
+        """Rebuild an index or all indexes."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            if index_name:
+                reindex_sql = f"REINDEX {index_name}"
+                cur.execute(reindex_sql)
+                return f"Index '{index_name}' rebuilt successfully"
+            else:
+                cur.execute("REINDEX")
+                return "All indexes rebuilt successfully"
+
+    # ==================== VIEW MANAGEMENT ====================
+
+    @mcp.tool()
+    def sqlite_create_view(view_name: str, query: str, if_not_exists: bool = True) -> str:
+        """Create a view from a SELECT query."""
+        if not _validate_sql_query(query, ['select', 'with']):
+            raise ValueError("Only SELECT/CTE queries are allowed for views.")
+        
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            if_exists_clause = "IF NOT EXISTS" if if_not_exists else ""
+            create_sql = f"CREATE VIEW {if_exists_clause} {view_name} AS {query}"
+            
+            cur.execute(create_sql)
+            return f"View '{view_name}' created successfully"
+
+    @mcp.tool()
+    def sqlite_drop_view(view_name: str, if_exists: bool = True) -> str:
+        """Drop a view."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            if_exists_clause = "IF EXISTS" if if_exists else ""
+            drop_sql = f"DROP VIEW {if_exists_clause} {view_name}"
+            
+            cur.execute(drop_sql)
+            return f"View '{view_name}' dropped successfully"
+
+    @mcp.tool()
+    def sqlite_list_views() -> List[str]:
+        """List all views in the database."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name FROM sqlite_master WHERE type='view' ORDER BY 1")
+            return [row["name"] for row in cur.fetchall()]
+
+    # ==================== TRIGGER MANAGEMENT ====================
+
+    @mcp.tool()
+    def sqlite_create_trigger(trigger_name: str, table_name: str, trigger_event: str, 
+                            trigger_timing: str, trigger_action: str) -> str:
+        """Create a trigger on a table."""
+        valid_events = ["INSERT", "UPDATE", "DELETE"]
+        valid_timings = ["BEFORE", "AFTER", "INSTEAD OF"]
+        
+        if trigger_event.upper() not in valid_events:
+            raise ValueError(f"Trigger event must be one of: {valid_events}")
+        if trigger_timing.upper() not in valid_timings:
+            raise ValueError(f"Trigger timing must be one of: {valid_timings}")
+        
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            create_sql = f"""CREATE TRIGGER {trigger_name}
+                           {trigger_timing.upper()} {trigger_event.upper()} ON {table_name}
+                           BEGIN
+                               {trigger_action}
+                           END"""
+            
+            cur.execute(create_sql)
+            return f"Trigger '{trigger_name}' created successfully on table '{table_name}'"
+
+    @mcp.tool()
+    def sqlite_drop_trigger(trigger_name: str, if_exists: bool = True) -> str:
+        """Drop a trigger."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            
+            if_exists_clause = "IF EXISTS" if if_exists else ""
+            drop_sql = f"DROP TRIGGER {if_exists_clause} {trigger_name}"
+            
+            cur.execute(drop_sql)
+            return f"Trigger '{trigger_name}' dropped successfully"
+
+    @mcp.tool()
+    def sqlite_list_triggers() -> List[Dict[str, Any]]:
+        """List all triggers in the database."""
+        with _connect() as conn:
+            cur = conn.cursor()
+            cur.execute("SELECT name, tbl_name, sql FROM sqlite_master WHERE type='trigger' ORDER BY name")
+            return _rows_to_dicts(cur.fetchall())
 
     # ==================== UTILITY FUNCTIONS ====================
 
