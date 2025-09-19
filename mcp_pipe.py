@@ -192,4 +192,3 @@ if __name__ == "__main__":
         logger.info("Program interrupted by user")
     except Exception as e:
         logger.error(f"Program execution error: {e}")
-
